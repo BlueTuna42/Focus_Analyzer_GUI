@@ -2,9 +2,7 @@
 #include <string>
 #include <vector>
 #include <fstream>
-#include <memory>
-
-#include "struct.h"
+#include <chrono>
 #include "FFT.h"
 #include "bmp.h"
 #include "scan.h"
@@ -16,35 +14,51 @@ private:
     FFTProcessor fftProcessor;
 
 public:
-    bool checkFocus(const std::string& inputFilename) {
-        // Smart pointer, manages image memory
-        auto image = ImageIO::readImage(inputFilename);
+    void processFile(const std::string& file, std::ofstream& log) {
+        auto image = ImageIO::readImage(file);
         if (!image) {
-            std::cerr << "Error reading image: " << inputFilename << std::endl;
-            return false;
+            std::cerr << "Error reading image: " << file << std::endl;
+            return;
         }
 
-        auto fft = fftProcessor.forwardFFT(*image);
-        fftProcessor.shift(*fft);
+        // Grayscale Analysis
+        auto s2 = std::chrono::high_resolution_clock::now();
+        auto gray = ImageIO::convertToGrayscale(*image);
+        auto fftG = fftProcessor.forwardFFT(*gray);
+        fftProcessor.shift(*fftG);
+        double erG = fftProcessor.energyRatio(*fftG);
+        auto e2 = std::chrono::high_resolution_clock::now();
 
-        double ER = fftProcessor.energyRatio(*fft);
+#ifdef DEBUG_BENCHMARK
+        std::cout << "\nFile: " << file << std::endl;
         
-        // ImageIO::writeJpg(*fft, "fft.jpg", 50);
-        // std::cout << "ER: " << ER << std::endl;
+        // RGB Analysis
+        auto s1 = std::chrono::high_resolution_clock::now();
+        auto fftRGB = fftProcessor.forwardFFT(*image);
+        fftProcessor.shift(*fftRGB);
+        double erRGB = fftProcessor.energyRatio(*fftRGB);
+        auto e1 = std::chrono::high_resolution_clock::now();
 
-        if (ER < focusConst) {
-            XMPTools::writeXmpRating(inputFilename, 1);
-            return false; // Blurry
+        std::chrono::duration<double, std::milli> t1 = e1 - s1, t2 = e2 - s2;
+        std::cout << "  [RGB]  ER: " << erRGB << " | Time: " << t1.count() << "ms" << std::endl;
+        std::cout << "  [GRAY] ER: " << erG   << " | Time: " << t2.count() << "ms" << std::endl;
+        std::cout << "  Speedup: " << t1.count()/t2.count() << "x" << std::endl;
+#endif
+        if (erG < focusConst) {
+            std::cout << file << " is blurry" << std::endl;
+            XMPTools::writeXmpRating(file, 1);
+            log << file << std::endl;
         } else {
-            XMPTools::writeXmpRating(inputFilename, 5);
-            return true;  // Sharp
+            std::cout << file << " is sharp" << std::endl;
+            XMPTools::writeXmpRating(file, 5);
         }
     }
 };
 
-int main(int argc, char* argv[]) {
+int main(int argc, char** argv) {
     std::string dirpath;
     
+    // Check if path is provided as argument or needs to be requested
     if (argc > 1) {
         dirpath = argv[1];
     } else {
@@ -54,28 +68,22 @@ int main(int argc, char* argv[]) {
             return 1;
         }
     }
+    
+    auto files = Scanner::scanBmpFiles(dirpath);
+    std::cout << "Found " << files.size() << " image file(s):" << std::endl;
 
-    std::vector<std::string> image_files = Scanner::scanBmpFiles(dirpath);
-    std::cout << "Found " << image_files.size() << " image file(s):" << std::endl;
-
-    std::ofstream outfile("BlurryList.txt");
-    if (!outfile.is_open()) {
+    std::ofstream log("BlurryList.txt");
+    if (!log.is_open()) {
         std::cerr << "Failed to open BlurryList.txt for writing." << std::endl;
         return 1;
     }
 
     FocusCheckerApp app;
 
-    for (const auto& file : image_files) {
-        if (app.checkFocus(file)) {
-            std::cout << file << " is sharp" << std::endl;
-        } else {
-            std::cout << file << " is blurry" << std::endl;
-            outfile << file << std::endl;
-        }
+    for (const auto& f : files) {
+        app.processFile(f, log);
     }
-
-    outfile.close();
-    // Plan and image memory is now cleaned up automatically in destructors
+    
+    log.close();
     return 0;
 }

@@ -144,3 +144,17 @@ double FFTProcessor::energyRatio(ComplexRGB& fftShifted) {
     
     return std::sqrt(std::pow(erR, 2) + std::pow(erG, 2) + std::pow(erB, 2));
 }
+
+std::unique_ptr<ComplexGrayscale> FFTProcessor::forwardFFT(const GrayscaleImage& img) {
+    auto fft = std::make_unique<ComplexGrayscale>(img.width, img.height);
+    fftwf_execute_dft(get_plan(img.width, img.height, img.gray, fft->gray, FFTW_FORWARD), img.gray, fft->gray);
+    return fft;
+}
+
+void FFTProcessor::shift(ComplexGrayscale& data) {
+    fftShiftChannel(data.gray, data.width, data.height);
+}
+
+double FFTProcessor::energyRatio(ComplexGrayscale& fftShifted) {
+    return energyRatioChannel(fftShifted.gray, fftShifted.width, fftShifted.height);
+}

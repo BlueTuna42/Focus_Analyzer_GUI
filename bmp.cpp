@@ -105,6 +105,21 @@ std::unique_ptr<RGBImage> ImageIO::readRaw(const std::string& filename) {
     return bmp;
 }
 
+std::unique_ptr<GrayscaleImage> ImageIO::convertToGrayscale(const RGBImage& rgbImg) {
+    auto grayImg = std::make_unique<GrayscaleImage>(rgbImg.width, rgbImg.height);
+    int total = rgbImg.width * rgbImg.height;
+    
+    for (int i = 0; i < total; ++i) {
+        // Luminance: Y = 0.299*R + 0.587*G + 0.114*B
+        grayImg->gray[i][0] = 0.299f * rgbImg.red[i][0] + 
+                              0.587f * rgbImg.green[i][0] + 
+                              0.114f * rgbImg.blue[i][0];
+        grayImg->gray[i][1] = 0.0f;
+    }
+    
+    return grayImg;
+}
+
 std::unique_ptr<RGBImage> ImageIO::readImage(const std::string& filename) {
     if (isRaw(filename)) {
         return readRaw(filename);
@@ -117,7 +132,7 @@ bool ImageIO::writeJpg(const ComplexRGB& img, const std::string& filename, int q
     int N = img.width * img.height;
     std::vector<unsigned char> buffer(3 * N);
 
-    // Find global max for normalization
+    // Global max for normalization
     float max_val = 0.0f;
     for (int i = 0; i < N; i++) {
         float mr = std::log(1.0f + std::hypot(img.red[i][0], img.red[i][1]));
@@ -131,7 +146,7 @@ bool ImageIO::writeJpg(const ComplexRGB& img, const std::string& filename, int q
 
     float scale = (max_val > 0 ? 255.0f / max_val : 0.0f);
 
-    // Populate RGB buffer
+    // Fill RGB buffer
     for (int i = 0; i < N; i++) {
         buffer[3*i + 0] = static_cast<unsigned char>(std::log(1.0f + std::hypot(img.red[i][0], img.red[i][1])) * scale);
         buffer[3*i + 1] = static_cast<unsigned char>(std::log(1.0f + std::hypot(img.green[i][0], img.green[i][1])) * scale);

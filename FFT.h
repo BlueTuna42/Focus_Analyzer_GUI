@@ -17,8 +17,6 @@ private:
     };
 
     PlanNode* plan_cache;
-
-    // Private helper methods
     fftwf_plan get_plan(int width, int height, fftwf_complex *in, fftwf_complex *out, int direction);
     double energyRatioChannel(fftwf_complex *in, int width, int height);
     void swap_complex(fftwf_complex *a, fftwf_complex *b);
@@ -36,6 +34,11 @@ public:
     void shift(ComplexRGB& data);
     std::unique_ptr<ComplexRGB> inverseFFT(const ComplexRGB& fft);
     double energyRatio(ComplexRGB& fftShifted);
+
+    // Grayscale processing methods
+    std::unique_ptr<ComplexGrayscale> forwardFFT(const GrayscaleImage& img);
+    void shift(ComplexGrayscale& data);
+    double energyRatio(ComplexGrayscale& fftShifted);
 };
 
 #endif

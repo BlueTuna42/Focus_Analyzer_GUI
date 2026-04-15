@@ -15,6 +15,9 @@ private:
 public:
     static std::unique_ptr<RGBImage> readImage(const std::string& filename);
     static bool writeJpg(const ComplexRGB& img, const std::string& filename, int quality);
+    
+    // Method to non-destructively convert RGB image to Grayscale
+    static std::unique_ptr<GrayscaleImage> convertToGrayscale(const RGBImage& rgbImg);
 };
 
 #endif
