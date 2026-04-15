@@ -6,7 +6,7 @@
 
 class Scanner {
 public:
-    static std::vector<std::string> scanBmpFiles(const std::string& path);
+    static std::vector<std::string> scanFiles(const std::string& path);
 };
 
 #endif
