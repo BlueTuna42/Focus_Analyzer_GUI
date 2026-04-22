@@ -3,6 +3,8 @@
 #include <vector>
 #include <fstream>
 #include <chrono>
+#include <future>
+#include <mutex>
 #include "FFT.h"
 #include "bmp.h"
 #include "scan.h"
@@ -10,77 +12,67 @@
 
 class FocusCheckerApp {
 private:
-    const double focusConst = 0.12;
+    const double focusConst = 0.0004;
     FFTProcessor fftProcessor;
+    std::mutex output_mutex; // Mutex to prevent console and log file text mixing
 
 public:
-    // Adjustable parameter for RAW processing
-    bool useHalfSize = true;
+    bool useHalfSize = true; // Adjustable parameter for RAW processing
 
     void processFile(const std::string& file, std::ofstream& log) {
 #ifdef DEBUG_BENCHMARK
-        std::cout << "\nFile: " << file << std::endl;
-
-        // Benchmark Read Time (Full vs Half)
-        auto ts1 = std::chrono::high_resolution_clock::now();
-        auto imgFull = ImageIO::readImage(file, false);
-        auto te1 = std::chrono::high_resolution_clock::now();
-
-        auto ts2 = std::chrono::high_resolution_clock::now();
-        auto imgHalf = ImageIO::readImage(file, true);
-        auto te2 = std::chrono::high_resolution_clock::now();
-
-        std::chrono::duration<double, std::milli> tFull = te1 - ts1;
-        std::chrono::duration<double, std::milli> tHalf = te2 - ts2;
-
-        std::cout << "  [READ] Full size: " << tFull.count() << "ms | Half size: " << tHalf.count() << "ms" << std::endl;
-        std::cout << "  [READ] Speedup: " << tFull.count() / (tHalf.count() > 0 ? tHalf.count() : 1) << "x" << std::endl;
-
-        // Select the image memory depending on the config (move semantics prevent deep copies)
-        auto image = useHalfSize ? std::move(imgHalf) : std::move(imgFull);
-        if (!image) {
-            std::cerr << "Error reading image: " << file << std::endl;
-            return;
-        }
-
-        // RGB Analysis (only for benchmarking when DEBUG_BENCHMARK is defined)
-        auto s1 = std::chrono::high_resolution_clock::now();
-        auto fftRGB = fftProcessor.forwardFFT(*image);
-        fftProcessor.shift(*fftRGB);
-        double erRGB = fftProcessor.energyRatio(*fftRGB);
-        auto e1 = std::chrono::high_resolution_clock::now();
-#else
-        // Standard production run without extra I/O overhead
-        auto image = ImageIO::readImage(file, useHalfSize);
-        if (!image) {
-            std::cerr << "Error reading image: " << file << std::endl;
-            return;
-        }
+        auto ts_read = std::chrono::high_resolution_clock::now();
 #endif
-
-        // Grayscale Analysis (Optimized - Always runs)
-        auto s2 = std::chrono::high_resolution_clock::now();
-        auto gray = ImageIO::convertToGrayscale(*image);
-        auto fftG = fftProcessor.forwardFFT(*gray);
-        fftProcessor.shift(*fftG);
-        double erG = fftProcessor.energyRatio(*fftG);
-        auto e2 = std::chrono::high_resolution_clock::now();
+        auto image = ImageIO::readImage(file, useHalfSize);
+        if (!image) return;
 
 #ifdef DEBUG_BENCHMARK
-        std::chrono::duration<double, std::milli> t1 = e1 - s1, t2 = e2 - s2;
-        std::cout << "  [FFT]  RGB: " << t1.count() << "ms | GRAY: " << t2.count() << "ms" << std::endl;
-        std::cout << "  [FFT]  Speedup: " << t1.count()/t2.count() << "x" << std::endl;
-        std::cout << "  [DATA] ER RGB: " << erRGB << " | ER GRAY: " << erG << std::endl;
+        auto te_read = std::chrono::high_resolution_clock::now();
+        auto ts_fft = std::chrono::high_resolution_clock::now();
+#endif
+        auto fftG = fftProcessor.forwardFFT(*image);
+
+#ifdef DEBUG_BENCHMARK
+        auto te_fft = std::chrono::high_resolution_clock::now();
+        auto ts_ratio = std::chrono::high_resolution_clock::now();
 #endif
 
-        // Standard logic: sharp or blurry decision
-        if (erG < focusConst) {
-            std::cout << file << " is blurry" << std::endl;
+        double erG = fftProcessor.energyRatio(*fftG);
+
+#ifdef DEBUG_BENCHMARK
+        auto te_ratio = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> t_read = te_read - ts_read;
+        std::chrono::duration<double, std::milli> t_fft = te_fft - ts_fft;
+        std::chrono::duration<double, std::milli> t_ratio = te_ratio - ts_ratio;
+#endif
+
+        bool isBlurry = (erG < focusConst);
+        if (isBlurry) {
             XMPTools::writeXmpRating(file, 1);
+        } else {
+            XMPTools::writeXmpRating(file, 5);
+        }
+
+        // Lock the mutex before writing to the console and log file to prevent scrambling mixing up
+        std::lock_guard<std::mutex> lock(output_mutex);
+
+#ifdef DEBUG_BENCHMARK
+        std::cout << "\nFile: " << file << std::endl;
+        std::cout << "  [READ]    Time: " << t_read.count() << " ms" << std::endl;
+        std::cout << "  [FFT R2C] Time: " << t_fft.count() << " ms" << std::endl;
+        std::cout << "  [RATIO]   Time: " << t_ratio.count() << " ms" << std::endl;
+        std::cout << "  [DATA]    ER:   " << erG << std::endl;
+#endif
+
+        if (isBlurry) {
+#ifndef DEBUG_BENCHMARK
+            std::cout << file << " is blurry" << std::endl;
+#endif
             log << file << std::endl;
         } else {
+#ifndef DEBUG_BENCHMARK
             std::cout << file << " is sharp" << std::endl;
-            XMPTools::writeXmpRating(file, 5);
+#endif
         }
     }
 };
@@ -109,13 +101,35 @@ int main(int argc, char** argv) {
     }
 
     FocusCheckerApp app;
-    // You can modify this variable programmatically or via arguments later
     app.useHalfSize = true; 
 
+#ifdef DEBUG_BENCHMARK
+    auto ts_total_start = std::chrono::high_resolution_clock::now();
+#endif
+
+    // Vector to store futures for parallel execution
+    std::vector<std::future<void>> futures;
+
+    // Launch processing
     for (const auto& f : files) {
-        app.processFile(f, log);
+        futures.push_back(std::async(std::launch::async, [&app, &log, f]() {
+            app.processFile(f, log);
+        }));
+    }
+
+    // Wait for all processЫЫЫing threads to finish
+    for (auto& fut : futures) {
+        fut.wait();
     }
     
+#ifdef DEBUG_BENCHMARK
+    auto ts_total_end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> total_time = ts_total_end - ts_total_start;
+    std::cout << "\n========================================" << std::endl;
+    std::cout << "  [TOTAL] Directory processing time: " << total_time.count() << " ms" << std::endl;
+    std::cout << "========================================" << std::endl;
+#endif
+
     log.close();
     return 0;
 }
