@@ -14,7 +14,7 @@
 
 namespace fs = std::filesystem;
 
-// --- Цветовая палитра ---
+//colors
 namespace Theme {
     const sf::Color Bg = sf::Color(30, 30, 30);
     const sf::Color Sidebar = sf::Color(45, 45, 45);
@@ -25,7 +25,7 @@ namespace Theme {
     const sf::Color Blurry = sf::Color(220, 50, 50);
 }
 
-// --- Кнопка ---
+//button
 struct StyledButton {
     sf::RectangleShape rect;
     sf::Text text;
@@ -63,7 +63,7 @@ struct StyledButton {
     }
 };
 
-// --- Логика анализа ---
+//analyzing process
 class FocusCheckerApp {
 private:
     const double focusConst = 0.0004;
@@ -87,7 +87,7 @@ public:
     }
 };
 
-// --- Диаграмма ---
+//analysis chart
 void drawAnalysisChart(sf::RenderWindow& window, sf::Vector2f pos,
                        int sharp, int blurry, sf::Font& font) {
 
@@ -140,7 +140,6 @@ void drawAnalysisChart(sf::RenderWindow& window, sf::Vector2f pos,
     window.draw(pctText);
 }
 
-// --- MAIN ---
 int main() {
     sf::RenderWindow window(sf::VideoMode(900, 600), "Focus Analyzer");
     window.setFramerateLimit(60);
@@ -157,12 +156,21 @@ int main() {
     StyledButton analyzeButton("Analyze Folder", font, {25, 30});
     FocusCheckerApp app;
 
-    struct Result { std::string name; bool sharp; };
+    struct Result {
+        std::string name;
+        bool sharp;
+        sf::Texture texture;
+    };
     std::vector<Result> results;
 
+    //progress bar (WIP)
     float progress = 0;
     size_t processed = 0, total = 0;
     bool analyzing = false;
+
+    //scroll
+    float scrollOffset = 0.f;
+    float maxScroll = 0.f;
 
     while (window.isOpen()) {
         sf::Event event;
@@ -171,6 +179,17 @@ int main() {
         while (window.pollEvent(event)) {
             if (event.type == sf::Event::Closed)
                 window.close();
+            
+            if (event.type == sf::Event::MouseWheelScrolled)
+            {
+                if (event.mouseWheelScroll.wheel == sf::Mouse::VerticalWheel)
+                {
+                    scrollOffset -= event.mouseWheelScroll.delta * 40.f;
+
+                    if (scrollOffset < 0.f) scrollOffset = 0.f;
+                    if (scrollOffset > maxScroll) scrollOffset = maxScroll;
+                }
+            }
 
             if (analyzeButton.isClicked(event)) {
                 const char* path = tinyfd_selectFolderDialog("Select Folder", "");
@@ -184,7 +203,6 @@ int main() {
                 processed = 0;
                 analyzing = true;
 
-                // --- ПАРАЛЛЕЛЬНАЯ ОБРАБОТКА ---
                 std::vector<std::future<bool>> futures;
 
                 for (const auto& f : files) {
@@ -193,16 +211,41 @@ int main() {
                 }
 
                 for (size_t i = 0; i < futures.size(); ++i) {
-                    bool res = futures[i].get();
+                bool res = futures[i].get();
 
-                    results.push_back({
-                        fs::path(files[i]).filename().string(),
-                        res
-                    });
+                Result r;
+                r.name = fs::path(files[i]).filename().string();
+                r.sharp = res;
 
+                sf::Image img;
+                if (!img.loadFromFile(files[i]))
+                {
                     processed++;
                     progress = (float)processed / total;
+                    continue;
                 }
+
+                //crop to square
+                unsigned w = img.getSize().x;
+                unsigned h = img.getSize().y;
+                unsigned minSide = std::min(w, h);
+
+                unsigned x = (w - minSide) / 2;
+                unsigned y = (h - minSide) / 2;
+
+                sf::Image cropped;
+                cropped.create(minSide, minSide);
+                cropped.copy(img, 0, 0, sf::IntRect(x, y, minSide, minSide));
+
+                img = std::move(cropped);
+
+                r.texture.loadFromImage(img);
+
+                results.push_back(std::move(r));
+
+                processed++;
+                progress = (float)processed / total;
+            }
 
                 analyzing = false;
             }
@@ -221,6 +264,74 @@ int main() {
             drawAnalysisChart(window, {130, 150},
                               sharp, results.size() - sharp, font);
         }
+
+        float START_X = 280.f;
+        float START_Y = 40.f;
+
+        float availableWidth = window.getSize().x - START_X - 20.f;
+
+        int COLS = std::max(1, (int)(availableWidth / 160.f));
+
+        float SIZE = (availableWidth - (COLS - 1) * 10.f) / COLS;
+
+        float totalGridWidth = COLS * SIZE + (COLS - 1) * 10.f;
+        float offsetX = START_X + (availableWidth - totalGridWidth) / 2.f;
+
+        int rows = (results.size() + COLS - 1) / COLS;
+        float contentHeight = rows * (SIZE + 10.f);
+
+        float visibleHeight = window.getSize().y;
+
+        maxScroll = std::max(0.f, contentHeight - (window.getSize().y - START_Y));
+
+        sf::View view = window.getDefaultView();
+
+        float viewWidth = window.getSize().x - START_X;
+        float viewHeight = window.getSize().y;
+
+    //    view.setViewport(sf::FloatRect(
+    //        START_X / window.getSize().x,
+    //        0.f,
+    //        viewWidth / window.getSize().x,
+    //        1.f
+    //    ));
+
+        view.setCenter(
+            window.getSize().x / 2.f,
+            window.getSize().y / 2.f + scrollOffset
+        );
+
+        window.setView(view);
+
+        for (size_t i = 0; i < results.size(); ++i) {
+            if (results[i].texture.getSize().x == 0) continue;
+
+            int row = i / COLS;
+            int col = i % COLS;
+
+            float x = offsetX + col * (SIZE + 10);
+            float y = START_Y + row * (SIZE + 10);
+
+            sf::Sprite sprite(results[i].texture);
+
+            auto texSize = results[i].texture.getSize();
+            float scale = texSize.x > 0 ? SIZE / texSize.x : 1.f;
+
+            sprite.setScale(scale, scale);
+            sprite.setPosition(x, y);
+
+            window.draw(sprite);
+
+            sf::RectangleShape border({SIZE, SIZE});
+            border.setPosition(x, y);
+            border.setFillColor(sf::Color::Transparent);
+            border.setOutlineThickness(3.f);
+            border.setOutlineColor(results[i].sharp ? Theme::Sharp : Theme::Blurry);
+
+            window.draw(border);
+        }
+
+        window.setView(window.getDefaultView());
 
         window.display();
     }
