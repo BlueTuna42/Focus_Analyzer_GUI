@@ -36,6 +36,8 @@ if(ENABLE_BENCHMARK)
 endif()
 
 # Try to find libraries (Linux/vcpkg/MSYS2 approach)
+find_package(Threads REQUIRED)
+
 find_package(PkgConfig QUIET)
 if(PKG_CONFIG_FOUND)
     pkg_check_modules(FFTW3 IMPORTED_TARGET fftw3f)
@@ -89,30 +91,30 @@ set(SOURCES
     gui.cpp
 )
 
-add_executable(focus_checker ${SOURCES})
+add_executable(focus_analyzer ${SOURCES})
 
 # Linking
-target_include_directories(focus_checker PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(focus_analyzer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(TARGET PkgConfig::FFTW3)
-    target_link_libraries(focus_checker PRIVATE PkgConfig::FFTW3)
+    target_link_libraries(focus_analyzer PRIVATE PkgConfig::FFTW3)
 else()
-    target_include_directories(focus_checker PRIVATE ${FFTW3_INCLUDE_DIRS})
-    target_link_libraries(focus_checker PRIVATE ${FFTW3_LIBRARIES})
+    target_include_directories(focus_analyzer PRIVATE ${FFTW3_INCLUDE_DIRS})
+    target_link_libraries(focus_analyzer PRIVATE ${FFTW3_LIBRARIES})
 endif()
 
 if(TARGET PkgConfig::LIBRAW)
-    target_link_libraries(focus_checker PRIVATE PkgConfig::LIBRAW)
+    target_link_libraries(focus_analyzer PRIVATE PkgConfig::LIBRAW)
 else()
-    target_include_directories(focus_checker PRIVATE ${LIBRAW_INCLUDE_DIRS})
-    target_link_libraries(focus_checker PRIVATE ${LIBRAW_LIBRARIES})
+    target_include_directories(focus_analyzer PRIVATE ${LIBRAW_INCLUDE_DIRS})
+    target_link_libraries(focus_analyzer PRIVATE ${LIBRAW_LIBRARIES})
 endif()
 
 if(TARGET PkgConfig::GTK3)
-    target_link_libraries(focus_checker PRIVATE PkgConfig::GTK3)
+    target_link_libraries(focus_analyzer PRIVATE PkgConfig::GTK3)
 endif()
 
-target_link_libraries(focus_checker PRIVATE Threads::Threads)
+target_link_libraries(focus_analyzer PRIVATE Threads::Threads)
 if(UNIX)
-    target_link_libraries(focus_checker PRIVATE m)
+    target_link_libraries(focus_analyzer PRIVATE m)
 endif()
