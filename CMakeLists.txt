@@ -15,7 +15,6 @@ else()
     set(ColorBold  "")
 endif()
 
-# Use C++17 for std::filesystem support
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -36,22 +35,13 @@ if(ENABLE_BENCHMARK)
 endif()
 
 # Try to find libraries (Linux/vcpkg/MSYS2 approach)
+set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
 find_package(PkgConfig QUIET)
 if(PKG_CONFIG_FOUND)
-    pkg_check_modules(FFTW3 IMPORTED_TARGET fftw3f)
     pkg_check_modules(LIBRAW IMPORTED_TARGET libraw)
-    pkg_check_modules(GTK3 IMPORTED_TARGET gtk+-3.0) # Добавлен поиск GTK3
-endif()
-
-# Manual search fallback (Common for Windows without pkg-config)
-if(NOT FFTW3_FOUND)
-    find_path(FFTW3_INCLUDE_DIRS NAMES fftw3.h)
-    find_library(FFTW3_LIBRARIES NAMES fftw3f)
-    if(FFTW3_INCLUDE_DIRS AND FFTW3_LIBRARIES)
-        set(FFTW3_FOUND TRUE)
-    endif()
+    pkg_check_modules(GTK3 IMPORTED_TARGET gtk+-3.0) 
 endif()
 
 if(NOT LIBRAW_FOUND)
@@ -62,13 +52,6 @@ if(NOT LIBRAW_FOUND)
     endif()
 endif()
 
-# Colored diagnostic messages
-if(NOT FFTW3_FOUND)
-    message(FATAL_ERROR "${ColorRed}${ColorBold}FFTW3 (float) not found!${ColorReset}")
-else()
-    message(STATUS "${ColorGreen}FFTW3 found.${ColorReset}")
-endif()
-
 if(NOT LIBRAW_FOUND)
     message(FATAL_ERROR "${ColorRed}${ColorBold}LibRaw not found!${ColorReset}")
 else()
@@ -76,7 +59,7 @@ else()
 endif()
 
 if(NOT GTK3_FOUND)
-    message(FATAL_ERROR "${ColorRed}${ColorBold}GTK3 not found! Please install it (e.g., libgtk-3-dev).${ColorReset}")
+    message(FATAL_ERROR "${ColorRed}${ColorBold}GTK3 not found!${ColorReset}")
 else()
     message(STATUS "${ColorGreen}GTK3 found.${ColorReset}")
 endif()
@@ -85,7 +68,7 @@ endif()
 set(SOURCES
     main.cpp
     gui/window/app_style.cpp
-    FFT.cpp
+    laplacian.cpp
     bmp.cpp
     gui/viewer/image_viewer.cpp
     gui/window/main_window_builder.cpp
@@ -101,30 +84,22 @@ set(SOURCES
     gui.cpp
 )
 
-add_executable(focus_analyzer ${SOURCES})
+add_executable(focus_checker ${SOURCES})
 
-# Linking
-target_include_directories(focus_analyzer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-
-if(TARGET PkgConfig::FFTW3)
-    target_link_libraries(focus_analyzer PRIVATE PkgConfig::FFTW3)
-else()
-    target_include_directories(focus_analyzer PRIVATE ${FFTW3_INCLUDE_DIRS})
-    target_link_libraries(focus_analyzer PRIVATE ${FFTW3_LIBRARIES})
-endif()
+target_include_directories(focus_checker PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(TARGET PkgConfig::LIBRAW)
-    target_link_libraries(focus_analyzer PRIVATE PkgConfig::LIBRAW)
+    target_link_libraries(focus_checker PRIVATE PkgConfig::LIBRAW)
 else()
-    target_include_directories(focus_analyzer PRIVATE ${LIBRAW_INCLUDE_DIRS})
-    target_link_libraries(focus_analyzer PRIVATE ${LIBRAW_LIBRARIES})
+    target_include_directories(focus_checker PRIVATE ${LIBRAW_INCLUDE_DIRS})
+    target_link_libraries(focus_checker PRIVATE ${LIBRAW_LIBRARIES})
 endif()
 
 if(TARGET PkgConfig::GTK3)
-    target_link_libraries(focus_analyzer PRIVATE PkgConfig::GTK3)
+    target_link_libraries(focus_checker PRIVATE PkgConfig::GTK3)
 endif()
 
-target_link_libraries(focus_analyzer PRIVATE Threads::Threads)
+target_link_libraries(focus_checker PRIVATE Threads::Threads)
 if(UNIX)
-    target_link_libraries(focus_analyzer PRIVATE m)
+    target_link_libraries(focus_checker PRIVATE m)
 endif()
