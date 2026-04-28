@@ -6,7 +6,7 @@
 #include <future>
 #include <mutex>
 #include <atomic>
-#include "FFT.h"
+#include "laplacian.h"
 #include "bmp.h"
 #include "scan.h"
 #include "XMP_tools.h"
@@ -14,12 +14,11 @@
 
 class FocusCheckerApp {
 private:
-    const double focusConst = 0.0004;
-    FFTProcessor fftProcessor;
-    std::mutex output_mutex; // Mutex to prevent console and log file text mixing
+    const double focusConst = 150.0;
+    std::mutex output_mutex; 
 
 public:
-    bool useHalfSize = true; // Adjustable parameter for RAW processing
+    bool useHalfSize = true; 
 
     bool processDirectory(const std::string& dirpath, VisualGUI& gui) {
         auto files = Scanner::scanFiles(dirpath);
@@ -39,12 +38,9 @@ public:
 
 #ifdef DEBUG_BENCHMARK
         auto ts_total_start = std::chrono::high_resolution_clock::now();
-#endif
-
-        // Vector to store futures for parallel execution
-        std::vector<std::future<void>> futures;
-
+#endif    
         // Launch processing
+        std::vector<std::future<void>> futures;
         for (const auto& f : files) {
             futures.push_back(std::async(std::launch::async, [this, &log, &gui, &processedFiles, &sharpFiles, &blurryFiles, totalFiles, f]() {
                 const int result = processFile(f, log, gui);
@@ -85,25 +81,18 @@ public:
 
 #ifdef DEBUG_BENCHMARK
         auto te_read = std::chrono::high_resolution_clock::now();
-        auto ts_fft = std::chrono::high_resolution_clock::now();
+        auto ts_laplace = std::chrono::high_resolution_clock::now();
 #endif
-        auto fftG = fftProcessor.forwardFFT(*image);
+        
+        double maxVariance = LaplacianProcessor::evaluateSharpness(*image, 5, 5);
 
 #ifdef DEBUG_BENCHMARK
-        auto te_fft = std::chrono::high_resolution_clock::now();
-        auto ts_ratio = std::chrono::high_resolution_clock::now();
-#endif
-
-        double erG = fftProcessor.energyRatio(*fftG);
-
-#ifdef DEBUG_BENCHMARK
-        auto te_ratio = std::chrono::high_resolution_clock::now();
+        auto te_laplace = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> t_read = te_read - ts_read;
-        std::chrono::duration<double, std::milli> t_fft = te_fft - ts_fft;
-        std::chrono::duration<double, std::milli> t_ratio = te_ratio - ts_ratio;
+        std::chrono::duration<double, std::milli> t_laplace = te_laplace - ts_laplace;
 #endif
 
-        bool isBlurry = (erG < focusConst);
+        bool isBlurry = (maxVariance < focusConst);
         if (isBlurry) {
             XMPTools::writeXmpRating(file, 1);
         } else {
@@ -112,15 +101,13 @@ public:
 
         gui.AddResult(file, isBlurry);
 
-        // Lock the mutex before writing to the console and log file to prevent scrambling mixing up
         std::lock_guard<std::mutex> lock(output_mutex);
 
 #ifdef DEBUG_BENCHMARK
         std::cout << "\nFile: " << file << std::endl;
-        std::cout << "  [READ]    Time: " << t_read.count() << " ms" << std::endl;
-        std::cout << "  [FFT R2C] Time: " << t_fft.count() << " ms" << std::endl;
-        std::cout << "  [RATIO]   Time: " << t_ratio.count() << " ms" << std::endl;
-        std::cout << "  [DATA]    ER:   " << erG << std::endl;
+        std::cout << "  [READ]      Time: " << t_read.count() << " ms" << std::endl;
+        std::cout << "  [LAPLACIAN] Time: " << t_laplace.count() << " ms" << std::endl;
+        std::cout << "  [DATA]      Var:  " << maxVariance << std::endl;
 #endif
 
         if (isBlurry) {
