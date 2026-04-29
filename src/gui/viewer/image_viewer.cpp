@@ -19,14 +19,21 @@ struct ImageContext {
     ImageViewerCallbacks callbacks;
 
     GdkPixbuf *original_pixbuf = nullptr; 
-    GdkPixbuf *cached_scaled_pixbuf = nullptr; // Cache for cascaded downscaling
+    GdkPixbuf *cached_scaled_pixbuf = nullptr;
     double zoom_level = 1.0;
     double cached_zoom_level = -1.0; 
     guint zoom_idle_id = 0; 
 
+    // Panning state
     bool is_dragging = false;
     double drag_last_x = 0.0;
     double drag_last_y = 0.0;
+
+    // Fixed-point zoom logic state
+    double pivot_orig_x = 0.0; // Target point on the 1:1 original image
+    double pivot_orig_y = 0.0; 
+    double mouse_view_x = 0.0; // Mouse position relative to the visible viewport
+    double mouse_view_y = 0.0; 
 };
 
 struct ViewerBounds {
@@ -45,14 +52,11 @@ static ViewerBounds get_viewer_bounds(GtkWindow* window) {
 
     if (display) {
         GdkMonitor* monitor = nullptr;
-        
-        // Try to get monitor from current window
         GdkWindow* gdk_win = gtk_widget_get_window(GTK_WIDGET(window));
         if (gdk_win) {
             monitor = gdk_display_get_monitor_at_window(display, gdk_win);
         }
         
-        // Fallback to transient parent if current window is not yet realized/mapped
         if (!monitor) {
             GtkWindow* parent = gtk_window_get_transient_for(window);
             if (parent) {
@@ -63,13 +67,8 @@ static ViewerBounds get_viewer_bounds(GtkWindow* window) {
             }
         }
 
-        if (!monitor) {
-            monitor = gdk_display_get_primary_monitor(display);
-        }
-
-        if (monitor) {
-            gdk_monitor_get_workarea(monitor, &workarea);
-        }
+        if (!monitor) monitor = gdk_display_get_primary_monitor(display);
+        if (monitor) gdk_monitor_get_workarea(monitor, &workarea);
     }
 
     return {workarea.width, workarea.height, workarea.width - 100, workarea.height - 100};
@@ -78,48 +77,50 @@ static ViewerBounds get_viewer_bounds(GtkWindow* window) {
 static void apply_zoom_sync(ImageContext* ctx) {
     if (!ctx->original_pixbuf) return;
 
-    if (std::abs(ctx->zoom_level - ctx->cached_zoom_level) < 0.001 && ctx->cached_scaled_pixbuf) {
-        return;
-    }
-
     int orig_w = gdk_pixbuf_get_width(ctx->original_pixbuf);
     int orig_h = gdk_pixbuf_get_height(ctx->original_pixbuf);
 
     const int MAX_DIMENSION = 16384;
-    double max_zoom_w = static_cast<double>(MAX_DIMENSION) / orig_w;
-    double max_zoom_h = static_cast<double>(MAX_DIMENSION) / orig_h;
-    double actual_max_zoom = std::min({20.0, max_zoom_w, max_zoom_h});
+    double actual_max_zoom = std::min({20.0, (double)MAX_DIMENSION / orig_w, (double)MAX_DIMENSION / orig_h});
+    if (ctx->zoom_level > actual_max_zoom) ctx->zoom_level = actual_max_zoom;
 
-    if (ctx->zoom_level > actual_max_zoom) {
-        ctx->zoom_level = actual_max_zoom;
+    if (std::abs(ctx->zoom_level - ctx->cached_zoom_level) < 0.0001 && ctx->cached_scaled_pixbuf) {
+        return;
     }
 
     int new_w = std::max(1, static_cast<int>(std::round(orig_w * ctx->zoom_level)));
     int new_h = std::max(1, static_cast<int>(std::round(orig_h * ctx->zoom_level)));
 
-    GdkInterpType interp = GDK_INTERP_NEAREST;
+    GdkInterpType interp = (ctx->zoom_level > 1.0) ? GDK_INTERP_NEAREST : GDK_INTERP_BILINEAR;
     GdkPixbuf* source_pixbuf = ctx->original_pixbuf;
 
-    if (ctx->zoom_level <= 1.0) {
-        interp = GDK_INTERP_BILINEAR;
-        if (ctx->cached_scaled_pixbuf && ctx->zoom_level < ctx->cached_zoom_level) {
-            source_pixbuf = ctx->cached_scaled_pixbuf;
-        }
+    if (ctx->zoom_level <= 1.0 && ctx->cached_scaled_pixbuf && ctx->zoom_level < ctx->cached_zoom_level) {
+        source_pixbuf = ctx->cached_scaled_pixbuf;
     }
 
     GdkPixbuf* scaled = gdk_pixbuf_scale_simple(source_pixbuf, new_w, new_h, interp);
-    
-    if (ctx->cached_scaled_pixbuf) {
-        g_object_unref(ctx->cached_scaled_pixbuf);
-    }
+    if (ctx->cached_scaled_pixbuf) g_object_unref(ctx->cached_scaled_pixbuf);
     
     ctx->cached_scaled_pixbuf = scaled;
     ctx->cached_zoom_level = ctx->zoom_level;
 
     gtk_image_set_from_pixbuf(GTK_IMAGE(ctx->image), scaled);
+
+    // Update scrollbars to keep the pivot point under the mouse cursor
+    GtkAdjustment* hadj = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(ctx->scrolled));
+    GtkAdjustment* vadj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(ctx->scrolled));
+
+    // Force update ranges so we can set values accurately
+    gtk_adjustment_set_upper(hadj, (double)new_w);
+    gtk_adjustment_set_upper(vadj, (double)new_h);
+
+    double new_hadj_val = (ctx->pivot_orig_x * ctx->zoom_level) - ctx->mouse_view_x;
+    double new_vadj_val = (ctx->pivot_orig_y * ctx->zoom_level) - ctx->mouse_view_y;
+
+    gtk_adjustment_set_value(hadj, new_hadj_val);
+    gtk_adjustment_set_value(vadj, new_vadj_val);
 }
 
-// Reset zoom level to fit the current workarea
 static void reset_zoom_to_fit(ImageContext* ctx) {
     if (!ctx->original_pixbuf) return;
 
@@ -127,11 +128,13 @@ static void reset_zoom_to_fit(ImageContext* ctx) {
     int orig_w = gdk_pixbuf_get_width(ctx->original_pixbuf);
     int orig_h = gdk_pixbuf_get_height(ctx->original_pixbuf);
 
-    double scale_x = static_cast<double>(bounds.imageWidth) / orig_w;
-    double scale_y = static_cast<double>(bounds.imageHeight) / orig_h;
+    ctx->zoom_level = std::min({1.0, (double)bounds.imageWidth / orig_w, (double)bounds.imageHeight / orig_h});
     
-    // Fit to window but don't upscale above 100%
-    ctx->zoom_level = std::min({1.0, scale_x, scale_y});
+    // Default pivot to center
+    ctx->pivot_orig_x = orig_w / 2.0;
+    ctx->pivot_orig_y = orig_h / 2.0;
+    ctx->mouse_view_x = bounds.imageWidth / 2.0;
+    ctx->mouse_view_y = bounds.imageHeight / 2.0;
 }
 
 static gboolean apply_zoom_timeout(gpointer data) {
@@ -142,9 +145,7 @@ static gboolean apply_zoom_timeout(gpointer data) {
 }
 
 static void request_zoom_update(ImageContext* ctx) {
-    if (ctx->zoom_idle_id != 0) {
-        g_source_remove(ctx->zoom_idle_id);
-    }
+    if (ctx->zoom_idle_id != 0) g_source_remove(ctx->zoom_idle_id);
     ctx->zoom_idle_id = g_timeout_add(15, apply_zoom_timeout, ctx); 
 }
 
@@ -152,7 +153,6 @@ static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpoint
     ImageContext* ctx = static_cast<ImageContext*>(data);
     
     if (event->button == 1) {
-        // LMB double click resets zoom
         if (event->type == GDK_2BUTTON_PRESS) {
             reset_zoom_to_fit(ctx);
             request_zoom_update(ctx);
@@ -173,19 +173,15 @@ static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpoint
         }
         return TRUE;
     }
-
     return FALSE;
 }
 
 static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpointer data) {
     ImageContext* ctx = static_cast<ImageContext*>(data);
-    
     if (event->button == 1) {
         ctx->is_dragging = false;
         GdkWindow *window = gtk_widget_get_window(widget);
-        if (window) {
-            gdk_window_set_cursor(window, NULL);
-        }
+        if (window) gdk_window_set_cursor(window, NULL);
         return TRUE;
     }
     return FALSE;
@@ -193,7 +189,6 @@ static gboolean on_button_release(GtkWidget* widget, GdkEventButton* event, gpoi
 
 static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpointer data) {
     ImageContext* ctx = static_cast<ImageContext*>(data);
-    
     if (ctx->is_dragging) {
         double dx = event->x_root - ctx->drag_last_x;
         double dy = event->y_root - ctx->drag_last_y;
@@ -206,7 +201,6 @@ static gboolean on_motion_notify(GtkWidget* widget, GdkEventMotion* event, gpoin
 
         ctx->drag_last_x = event->x_root;
         ctx->drag_last_y = event->y_root;
-        
         return TRUE;
     }
     return FALSE;
@@ -216,23 +210,33 @@ static gboolean on_viewer_scroll(GtkWidget* widget, GdkEventScroll* event, gpoin
     ImageContext* ctx = static_cast<ImageContext*>(data);
 
     if (event->state & GDK_CONTROL_MASK) {
-        double zoom_factor = 1.25; 
+        GtkAdjustment* hadj = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(ctx->scrolled));
+        GtkAdjustment* vadj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(ctx->scrolled));
+
+        // Use currently rendered zoom for accurate pivot calculation
+        double current_zoom = (ctx->cached_zoom_level > 0) ? ctx->cached_zoom_level : ctx->zoom_level;
+
+        // event->x is relative to the event_box (the content). 
+        // We need pivot on original 1:1 image.
+        ctx->pivot_orig_x = event->x / current_zoom;
+        ctx->pivot_orig_y = event->y / current_zoom;
         
-        if (event->direction == GDK_SCROLL_UP) {
-            ctx->zoom_level *= zoom_factor;
-        } else if (event->direction == GDK_SCROLL_DOWN) {
-            ctx->zoom_level /= zoom_factor;
-        } else if (event->direction == GDK_SCROLL_SMOOTH) {
+        // Viewport-relative mouse position: content_pos - scroll_pos
+        ctx->mouse_view_x = event->x - gtk_adjustment_get_value(hadj);
+        ctx->mouse_view_y = event->y - gtk_adjustment_get_value(vadj);
+
+        double zoom_factor = 1.25; 
+        if (event->direction == GDK_SCROLL_UP) ctx->zoom_level *= zoom_factor;
+        else if (event->direction == GDK_SCROLL_DOWN) ctx->zoom_level /= zoom_factor;
+        else if (event->direction == GDK_SCROLL_SMOOTH) {
             if (event->delta_y < 0) ctx->zoom_level *= zoom_factor;
             else if (event->delta_y > 0) ctx->zoom_level /= zoom_factor;
         }
 
         ctx->zoom_level = std::max(0.05, std::min(ctx->zoom_level, 20.0));
         request_zoom_update(ctx); 
-        
         return TRUE; 
     }
-    
     return FALSE; 
 }
 
@@ -245,9 +249,7 @@ static void on_previous_clicked(GtkButton* button, gpointer data) {
             ctx->filename = prevResult->filename;
             ctx->isBlurry = prevResult->isBlurry;
             load_current_image(ctx);
-            if (ctx->callbacks.selectVisibleRow) {
-                ctx->callbacks.selectVisibleRow(currentIndex - 1);
-            }
+            if (ctx->callbacks.selectVisibleRow) ctx->callbacks.selectVisibleRow(currentIndex - 1);
         }
     }
 }
@@ -261,82 +263,76 @@ static void on_next_clicked(GtkButton* button, gpointer data) {
             ctx->filename = nextResult->filename;
             ctx->isBlurry = nextResult->isBlurry;
             load_current_image(ctx);
-            if (ctx->callbacks.selectVisibleRow) {
-                ctx->callbacks.selectVisibleRow(currentIndex + 1);
-            }
+            if (ctx->callbacks.selectVisibleRow) ctx->callbacks.selectVisibleRow(currentIndex + 1);
         }
     }
 }
 
 static gboolean on_viewer_key_press(GtkWidget* widget, GdkEventKey* event, gpointer data) {
     ImageContext* ctx = static_cast<ImageContext*>(data);
-
     if (event->keyval == GDK_KEY_Escape) {
         gtk_widget_destroy(ctx->viewer_window);
         return TRUE;
     } else if (event->keyval == GDK_KEY_Left) {
-        if (gtk_widget_get_sensitive(ctx->previous_button)) {
-            on_previous_clicked(GTK_BUTTON(ctx->previous_button), ctx);
-        }
+        if (gtk_widget_get_sensitive(ctx->previous_button)) on_previous_clicked(GTK_BUTTON(ctx->previous_button), ctx);
         return TRUE;
     } else if (event->keyval == GDK_KEY_Right) {
-        if (gtk_widget_get_sensitive(ctx->next_button)) {
-            on_next_clicked(GTK_BUTTON(ctx->next_button), ctx);
-        }
+        if (gtk_widget_get_sensitive(ctx->next_button)) on_next_clicked(GTK_BUTTON(ctx->next_button), ctx);
         return TRUE;
     } else if (event->keyval == GDK_KEY_plus || event->keyval == GDK_KEY_equal || event->keyval == GDK_KEY_KP_Add) {
+        GtkAdjustment* hadj = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(ctx->scrolled));
+        GtkAdjustment* vadj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(ctx->scrolled));
+        
+        double current_zoom = (ctx->cached_zoom_level > 0) ? ctx->cached_zoom_level : ctx->zoom_level;
+        
+        // Pivot at the center of the visible viewport
+        ctx->mouse_view_x = gtk_adjustment_get_page_size(hadj) / 2.0;
+        ctx->mouse_view_y = gtk_adjustment_get_page_size(vadj) / 2.0;
+        ctx->pivot_orig_x = (gtk_adjustment_get_value(hadj) + ctx->mouse_view_x) / current_zoom;
+        ctx->pivot_orig_y = (gtk_adjustment_get_value(vadj) + ctx->mouse_view_y) / current_zoom;
+
         ctx->zoom_level *= 1.25;
         ctx->zoom_level = std::min(ctx->zoom_level, 20.0);
         request_zoom_update(ctx);
         return TRUE;
     } else if (event->keyval == GDK_KEY_minus || event->keyval == GDK_KEY_KP_Subtract) {
+        GtkAdjustment* hadj = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(ctx->scrolled));
+        GtkAdjustment* vadj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(ctx->scrolled));
+
+        double current_zoom = (ctx->cached_zoom_level > 0) ? ctx->cached_zoom_level : ctx->zoom_level;
+        ctx->mouse_view_x = gtk_adjustment_get_page_size(hadj) / 2.0;
+        ctx->mouse_view_y = gtk_adjustment_get_page_size(vadj) / 2.0;
+        ctx->pivot_orig_x = (gtk_adjustment_get_value(hadj) + ctx->mouse_view_x) / current_zoom;
+        ctx->pivot_orig_y = (gtk_adjustment_get_value(vadj) + ctx->mouse_view_y) / current_zoom;
+
         ctx->zoom_level /= 1.25;
-        ctx->zoom_level = std::max(ctx->zoom_level, 0.05);
+        ctx->zoom_level = std::max(0.05, ctx->zoom_level);
         request_zoom_update(ctx);
         return TRUE;
     }
-
     return FALSE;
 }
 
 static void on_viewer_destroy(GtkWidget* widget, gpointer data) {
     ImageContext* ctx = static_cast<ImageContext*>(data);
-    
-    if (ctx->zoom_idle_id != 0) {
-        g_source_remove(ctx->zoom_idle_id);
-        ctx->zoom_idle_id = 0;
-    }
-    
-    if (ctx->cached_scaled_pixbuf) {
-        g_object_unref(ctx->cached_scaled_pixbuf);
-        ctx->cached_scaled_pixbuf = nullptr;
-    }
-
-    if (ctx->original_pixbuf) {
-        g_object_unref(ctx->original_pixbuf);
-        ctx->original_pixbuf = nullptr;
-    }
+    if (ctx->zoom_idle_id != 0) g_source_remove(ctx->zoom_idle_id);
+    if (ctx->cached_scaled_pixbuf) g_object_unref(ctx->cached_scaled_pixbuf);
+    if (ctx->original_pixbuf) g_object_unref(ctx->original_pixbuf);
     delete ctx;
 }
 
 static void load_current_image(ImageContext* ctx) {
-    if (ctx->zoom_idle_id != 0) {
-        g_source_remove(ctx->zoom_idle_id);
-        ctx->zoom_idle_id = 0;
-    }
-
+    if (ctx->zoom_idle_id != 0) g_source_remove(ctx->zoom_idle_id);
     if (ctx->cached_scaled_pixbuf) {
         g_object_unref(ctx->cached_scaled_pixbuf);
         ctx->cached_scaled_pixbuf = nullptr;
     }
-
     if (ctx->original_pixbuf) {
         g_object_unref(ctx->original_pixbuf);
         ctx->original_pixbuf = nullptr;
     }
 
     ctx->cached_zoom_level = -1.0; 
-
     ctx->original_pixbuf = load_preview_pixbuf(ctx->filename, 8192, 8192);
 
     if (ctx->original_pixbuf) {
@@ -348,16 +344,14 @@ static void load_current_image(ImageContext* ctx) {
 
     std::string title = path_filename(ctx->filename) + (ctx->isBlurry ? " (Blurry)" : " (Sharp)");
     gtk_window_set_title(GTK_WINDOW(ctx->viewer_window), title.c_str());
-
     update_viewer_navigation_state(ctx);
 }
 
 static void update_viewer_navigation_state(ImageContext* ctx) {
     int currentIndex = ctx->callbacks.visibleIndexForFilename(ctx->filename);
-    bool hasPrevious = currentIndex > 0;
+    bool hasPrev = currentIndex > 0;
     bool hasNext = currentIndex >= 0 && ctx->callbacks.visibleAt(currentIndex + 1) != nullptr;
-    
-    gtk_widget_set_sensitive(ctx->previous_button, hasPrevious);
+    gtk_widget_set_sensitive(ctx->previous_button, hasPrev);
     gtk_widget_set_sensitive(ctx->next_button, hasNext);
 }
 
@@ -372,7 +366,6 @@ void open_image_viewer(GtkWindow* parent, const ResultData& result, ImageViewerC
     gtk_window_set_destroy_with_parent(GTK_WINDOW(ctx->viewer_window), TRUE);
     gtk_window_set_modal(GTK_WINDOW(ctx->viewer_window), TRUE);
 
-    // Initial setup for the window size
     ViewerBounds bounds = get_viewer_bounds(GTK_WINDOW(ctx->viewer_window));
     gtk_window_set_default_size(GTK_WINDOW(ctx->viewer_window), bounds.imageWidth, bounds.imageHeight);
 
@@ -409,6 +402,5 @@ void open_image_viewer(GtkWindow* parent, const ResultData& result, ImageViewerC
     gtk_box_pack_start(GTK_BOX(button_box), ctx->next_button, TRUE, TRUE, 0);
 
     load_current_image(ctx);
-
     gtk_widget_show_all(ctx->viewer_window);
 }
