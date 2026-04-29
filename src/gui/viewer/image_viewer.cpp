@@ -39,16 +39,27 @@ struct ViewerBounds {
 static void update_viewer_navigation_state(ImageContext* ctx);
 static void load_current_image(ImageContext* ctx);
 
-static ViewerBounds get_viewer_bounds(GtkWindow* parent) {
+static ViewerBounds get_viewer_bounds(GtkWindow* window) {
     GdkRectangle workarea{0, 0, 1024, 768};
-
     GdkDisplay* display = gdk_display_get_default();
+
     if (display) {
         GdkMonitor* monitor = nullptr;
-        if (parent) {
-            GdkWindow* parentWindow = gtk_widget_get_window(GTK_WIDGET(parent));
-            if (parentWindow) {
-                monitor = gdk_display_get_monitor_at_window(display, parentWindow);
+        
+        // Try to get monitor from current window
+        GdkWindow* gdk_win = gtk_widget_get_window(GTK_WIDGET(window));
+        if (gdk_win) {
+            monitor = gdk_display_get_monitor_at_window(display, gdk_win);
+        }
+        
+        // Fallback to transient parent if current window is not yet realized/mapped
+        if (!monitor) {
+            GtkWindow* parent = gtk_window_get_transient_for(window);
+            if (parent) {
+                GdkWindow* parent_win = gtk_widget_get_window(GTK_WIDGET(parent));
+                if (parent_win) {
+                    monitor = gdk_display_get_monitor_at_window(display, parent_win);
+                }
             }
         }
 
@@ -108,6 +119,21 @@ static void apply_zoom_sync(ImageContext* ctx) {
     gtk_image_set_from_pixbuf(GTK_IMAGE(ctx->image), scaled);
 }
 
+// Reset zoom level to fit the current workarea
+static void reset_zoom_to_fit(ImageContext* ctx) {
+    if (!ctx->original_pixbuf) return;
+
+    ViewerBounds bounds = get_viewer_bounds(GTK_WINDOW(ctx->viewer_window));
+    int orig_w = gdk_pixbuf_get_width(ctx->original_pixbuf);
+    int orig_h = gdk_pixbuf_get_height(ctx->original_pixbuf);
+
+    double scale_x = static_cast<double>(bounds.imageWidth) / orig_w;
+    double scale_y = static_cast<double>(bounds.imageHeight) / orig_h;
+    
+    // Fit to window but don't upscale above 100%
+    ctx->zoom_level = std::min({1.0, scale_x, scale_y});
+}
+
 static gboolean apply_zoom_timeout(gpointer data) {
     ImageContext* ctx = static_cast<ImageContext*>(data);
     ctx->zoom_idle_id = 0;
@@ -125,26 +151,15 @@ static void request_zoom_update(ImageContext* ctx) {
 static gboolean on_button_press(GtkWidget* widget, GdkEventButton* event, gpointer data) {
     ImageContext* ctx = static_cast<ImageContext*>(data);
     
-    // Left mouse button
     if (event->button == 1) {
-        // Double click resets zoom to "fit"
+        // LMB double click resets zoom
         if (event->type == GDK_2BUTTON_PRESS) {
-            if (ctx->original_pixbuf) {
-                ViewerBounds bounds = get_viewer_bounds(GTK_WINDOW(ctx->viewer_window));
-                int orig_w = gdk_pixbuf_get_width(ctx->original_pixbuf);
-                int orig_h = gdk_pixbuf_get_height(ctx->original_pixbuf);
-
-                double scale_x = static_cast<double>(bounds.imageWidth) / orig_w;
-                double scale_y = static_cast<double>(bounds.imageHeight) / orig_h;
-                ctx->zoom_level = std::min({1.0, scale_x, scale_y});
-                
-                request_zoom_update(ctx);
-            }
-            ctx->is_dragging = false; // Cancel potential drag on double click
+            reset_zoom_to_fit(ctx);
+            request_zoom_update(ctx);
+            ctx->is_dragging = false; 
             return TRUE;
         }
 
-        // Single click starts panning
         ctx->is_dragging = true;
         ctx->drag_last_x = event->x_root;
         ctx->drag_last_y = event->y_root;
@@ -325,14 +340,7 @@ static void load_current_image(ImageContext* ctx) {
     ctx->original_pixbuf = load_preview_pixbuf(ctx->filename, 8192, 8192);
 
     if (ctx->original_pixbuf) {
-        ViewerBounds bounds = get_viewer_bounds(GTK_WINDOW(ctx->viewer_window));
-        int orig_w = gdk_pixbuf_get_width(ctx->original_pixbuf);
-        int orig_h = gdk_pixbuf_get_height(ctx->original_pixbuf);
-
-        double scale_x = static_cast<double>(bounds.imageWidth) / orig_w;
-        double scale_y = static_cast<double>(bounds.imageHeight) / orig_h;
-        ctx->zoom_level = std::min({1.0, scale_x, scale_y});
-
+        reset_zoom_to_fit(ctx);
         apply_zoom_sync(ctx);
     } else {
         gtk_image_clear(GTK_IMAGE(ctx->image));
@@ -364,7 +372,8 @@ void open_image_viewer(GtkWindow* parent, const ResultData& result, ImageViewerC
     gtk_window_set_destroy_with_parent(GTK_WINDOW(ctx->viewer_window), TRUE);
     gtk_window_set_modal(GTK_WINDOW(ctx->viewer_window), TRUE);
 
-    ViewerBounds bounds = get_viewer_bounds(parent);
+    // Initial setup for the window size
+    ViewerBounds bounds = get_viewer_bounds(GTK_WINDOW(ctx->viewer_window));
     gtk_window_set_default_size(GTK_WINDOW(ctx->viewer_window), bounds.imageWidth, bounds.imageHeight);
 
     g_signal_connect(ctx->viewer_window, "destroy", G_CALLBACK(on_viewer_destroy), ctx);
