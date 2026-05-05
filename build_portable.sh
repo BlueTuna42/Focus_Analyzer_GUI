@@ -27,6 +27,18 @@ mkdir -p "$PORTABLE_DIR/share/icons"
 cp -r "$MSYS_UCRT_ROOT/share/icons/Adwaita" "$PORTABLE_DIR/share/icons/"
 cp -r "$MSYS_UCRT_ROOT/share/icons/hicolor" "$PORTABLE_DIR/share/icons/"
 
+echo "Copying application icons..."
+for size in 512x512 256x256 32x32 16x16; do
+    APP_ICON_DIR="$PORTABLE_DIR/share/icons/hicolor/$size/apps"
+    mkdir -p "$APP_ICON_DIR"
+    if [ -f "assets/icons/$size/icon.png" ]; then
+        cp "assets/icons/$size/icon.png" "$APP_ICON_DIR/"
+        echo " - Copied $size icon"
+    else
+        echo " - Warning: assets/icons/$size/icon.png not found, skipping."
+    fi
+done
+
 mkdir -p "$PORTABLE_DIR/lib/gdk-pixbuf-2.0/2.10.0/loaders"
 cp "$MSYS_UCRT_ROOT/lib/gdk-pixbuf-2.0/2.10.0/loaders/"*.dll "$PORTABLE_DIR/lib/gdk-pixbuf-2.0/2.10.0/loaders/"
 

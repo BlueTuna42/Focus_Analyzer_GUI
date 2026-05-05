@@ -401,7 +401,7 @@ static void start_analysis_for_directory(const std::string& dirpath) {
         gtk_widget_hide(g_ctx->summary_box);
     }
 
-    std::string title = "Focus Analyzer - Analysis: " + dirpath;
+    std::string title = "SharpMark - Analysis: " + dirpath;
     gtk_window_set_title(GTK_WINDOW(g_ctx->window), title.c_str());
 
     std::lock_guard<std::mutex> lock(g_ctx->mtx);

@@ -58,17 +58,18 @@ build
 *_Portable
 
 # Images
-*.jpg
-*.png
-*.bmp
-*.psd
-*.gif
-*.ARW
-*.RW2
-*.CR2
-*.xmp
+#*.jpg
+#*.png
+#*.bmp
+#*.psd
+#*.gif
+#*.ARW
+#*.RW2
+#*.CR2
+#*.xmp
 ImageLib
 Images
+
 
 # Output files
 *BlurryList.txt

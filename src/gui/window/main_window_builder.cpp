@@ -2,9 +2,12 @@
 
 static GtkWidget* create_main_window(GUIContext& ctx, const MainWindowCallbacks& callbacks) {
     ctx.window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(ctx.window), "Focus Analyzer");
+    gtk_window_set_title(GTK_WINDOW(ctx.window), "SharpMark");
     gtk_window_set_default_size(GTK_WINDOW(ctx.window), 800, 600);
     g_signal_connect(ctx.window, "destroy", callbacks.windowDestroy, NULL);
+
+    gtk_window_set_default_icon_name("icon");
+    gtk_window_set_icon_name(GTK_WINDOW(ctx.window), "icon");
 
     GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
     gtk_container_set_border_width(GTK_CONTAINER(vbox), 10);

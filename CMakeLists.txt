@@ -85,6 +85,7 @@ set(SOURCES
 )
 
 if(WIN32)
+    list(APPEND SOURCES assets/icons/app_icon.rc)
     add_executable(SharpMark WIN32 ${SOURCES})
 else()
     add_executable(SharpMark ${SOURCES})
