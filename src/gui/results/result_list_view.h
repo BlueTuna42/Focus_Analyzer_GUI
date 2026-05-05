@@ -13,6 +13,7 @@ struct ResultListView {
     GtkWidget* emptyLabel = nullptr;
     GCallback deleteCallback = nullptr;
     int viewMode = 0;
+     double zoomLevel = 1.0;
 };
 
 void result_list_view_set_empty_visible(const ResultListView& view, bool visible);

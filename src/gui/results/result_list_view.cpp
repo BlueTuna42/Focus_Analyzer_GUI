@@ -25,8 +25,16 @@ static GtkWidget* create_result_row(const ResultListView& view, const ResultData
     gtk_container_set_border_width(GTK_CONTAINER(box), 4);
     gtk_container_add(GTK_CONTAINER(row), box);
 
-    GtkWidget* image = gtk_image_new_from_pixbuf(pixbuf);
-    gtk_widget_set_size_request(image, 108, 108);
+    int width = gdk_pixbuf_get_width(pixbuf);
+    int height = gdk_pixbuf_get_height(pixbuf);
+    int scaled_w = std::max(20, static_cast<int>(width * view.zoomLevel));
+    int scaled_h = std::max(20, static_cast<int>(height * view.zoomLevel));
+
+    GdkPixbuf* scaled_pixbuf = gdk_pixbuf_scale_simple(pixbuf, scaled_w, scaled_h, GDK_INTERP_BILINEAR);
+    GtkWidget* image = gtk_image_new_from_pixbuf(scaled_pixbuf);
+    g_object_unref(scaled_pixbuf);
+
+    gtk_widget_set_size_request(image, scaled_w + 8, scaled_h + 8);
     gtk_box_pack_start(GTK_BOX(box), image, FALSE, FALSE, 0);
 
     GtkWidget* textBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
@@ -91,8 +99,16 @@ static GtkWidget* create_result_grid_item(const ResultListView& view, const Resu
     gtk_container_set_border_width(GTK_CONTAINER(box), 4);
     gtk_container_add(GTK_CONTAINER(child), box);
 
-    GtkWidget* image = gtk_image_new_from_pixbuf(pixbuf);
-    gtk_widget_set_size_request(image, 150, 150);
+    int width = gdk_pixbuf_get_width(pixbuf);
+    int height = gdk_pixbuf_get_height(pixbuf);
+    int scaled_w = std::max(30, static_cast<int>(width * view.zoomLevel));
+    int scaled_h = std::max(30, static_cast<int>(height * view.zoomLevel));
+
+    GdkPixbuf* scaled_pixbuf = gdk_pixbuf_scale_simple(pixbuf, scaled_w, scaled_h, GDK_INTERP_BILINEAR);
+    GtkWidget* image = gtk_image_new_from_pixbuf(scaled_pixbuf);
+    g_object_unref(scaled_pixbuf);
+
+    gtk_widget_set_size_request(image, scaled_w, scaled_h);
     gtk_box_pack_start(GTK_BOX(box), image, FALSE, FALSE, 0);
 
     GtkWidget* label = gtk_label_new(NULL);

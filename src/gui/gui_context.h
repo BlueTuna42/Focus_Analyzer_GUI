@@ -38,6 +38,7 @@ struct GUIContext {
     GtkWidget *flow_box = nullptr;
     GtkWidget *view_mode_combo = nullptr;
     ViewMode viewMode = ViewMode::List;
+    double zoomLevel = 1.0;
     int summarySharp = 0;
     int summaryBlurry = 0;
     SortMode sortMode = SortMode::Default;

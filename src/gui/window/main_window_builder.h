@@ -18,6 +18,7 @@ struct MainWindowCallbacks {
     GCallback settingsClicked = nullptr;
     GCallback viewModeChanged = nullptr;
     GCallback flowBoxChildActivated = nullptr;
+    GCallback listScrollEvent = nullptr;
 };
 
 void build_main_window(GUIContext& ctx, const MainWindowCallbacks& callbacks);

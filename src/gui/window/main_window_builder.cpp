@@ -97,8 +97,10 @@ static void build_results_area(GUIContext& ctx, GtkWidget* vbox, const MainWindo
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(ctx.list_scrolled_window),
                                    GTK_POLICY_AUTOMATIC,
                                    GTK_POLICY_AUTOMATIC);
+    
     gtk_container_add(GTK_CONTAINER(ctx.list_overlay), ctx.list_scrolled_window);
-
+    gtk_widget_add_events(ctx.list_scrolled_window, GDK_SCROLL_MASK);
+    g_signal_connect(ctx.list_scrolled_window, "scroll-event", callbacks.listScrollEvent, NULL);
     GtkWidget *view_stack = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_container_add(GTK_CONTAINER(ctx.list_scrolled_window), view_stack);
 

@@ -48,7 +48,8 @@ static ResultListView current_result_list_view() {
         g_ctx->list_scrolled_window,
         g_ctx->empty_results_label,
         G_CALLBACK(on_result_delete_button_clicked),
-        static_cast<int>(g_ctx->viewMode)
+        static_cast<int>(g_ctx->viewMode),
+        g_ctx->zoomLevel // <--- передаем уровень зума
     };
 }
 
@@ -264,7 +265,7 @@ static gboolean on_file_processed(gpointer data) {
     ResultData* res = static_cast<ResultData*>(data);
 
     ResultData result = *res;
-    result.thumbnail = add_status_border(load_preview_pixbuf(result.filename, 100, 100), result.isBlurry);
+    result.thumbnail = add_status_border(load_preview_pixbuf(result.filename, 150, 150), result.isBlurry);
     const ResultData& storedResult = g_ctx->results.add(result);
     if (g_ctx->sortMode == SortMode::Default) {
         result_list_view_append(current_result_list_view(), storedResult, true);
@@ -440,6 +441,31 @@ static void on_flow_box_child_activated(GtkFlowBox* box, GtkFlowBoxChild* child,
     }
 }
 
+static gboolean on_list_scroll_event(GtkWidget* widget, GdkEventScroll* event, gpointer data) {
+    if (event->state & GDK_CONTROL_MASK) { // Если зажат Ctrl
+        double delta = 0.0;
+        
+        if (event->direction == GDK_SCROLL_UP) {
+            delta = 0.1;
+        } else if (event->direction == GDK_SCROLL_DOWN) {
+            delta = -0.1;
+        } else if (event->direction == GDK_SCROLL_SMOOTH) {
+            if (event->delta_y < 0) delta = 0.1;
+            else if (event->delta_y > 0) delta = -0.1;
+        }
+
+        if (delta != 0.0) {
+            double newZoom = std::max(0.2, std::min(4.0, g_ctx->zoomLevel + delta));
+            if (std::abs(newZoom - g_ctx->zoomLevel) > 0.01) {
+                g_ctx->zoomLevel = newZoom;
+                rebuild_result_list(); // Перерисовываем список
+            }
+            return TRUE; // Блокируем стандартную прокрутку
+        }
+    }
+    return FALSE; // Разрешаем стандартную прокрутку
+}
+
 // Window callbacks
 
 static void on_window_destroy(GtkWidget* widget, gpointer data) {
@@ -561,7 +587,8 @@ static void run_gtk_thread() {
         G_CALLBACK(on_summary_draw),
         G_CALLBACK(on_settings_clicked),
         G_CALLBACK(on_view_mode_combo_changed),
-        G_CALLBACK(on_flow_box_child_activated)
+        G_CALLBACK(on_flow_box_child_activated),
+        G_CALLBACK(on_list_scroll_event)
     });
 
     gtk_widget_show_all(g_ctx->window);
