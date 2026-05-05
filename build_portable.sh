@@ -10,11 +10,11 @@ ninja
 
 echo "Building portable version..."
 cd ..
-PORTABLE_DIR="FocusChecker_Portable"
+PORTABLE_DIR="SharpMark_Portable"
 mkdir -p "$PORTABLE_DIR"
 
 # 1. Copy the executable
-cp build/focus_checker.exe "$PORTABLE_DIR/"
+cp build/SharpMark.exe "$PORTABLE_DIR/"
 
 # 2. Prepare directories for GTK3 resources
 echo "Copying GTK3 resources..."
@@ -35,7 +35,7 @@ echo "Copying dependencies..."
 
 # Create a temporary file with a list of everything that requires DLLs
 TMP_LIST="dll_targets.txt"
-echo "$PORTABLE_DIR/focus_checker.exe" > "$TMP_LIST"
+echo "$PORTABLE_DIR/SharpMark.exe" > "$TMP_LIST"
 find "$PORTABLE_DIR/lib/gdk-pixbuf-2.0/2.10.0/loaders" -name "*.dll" >> "$TMP_LIST"
 
 # Gather all required DLLs (filtering for ucrt64 libraries to avoid copying Windows system DLLs)

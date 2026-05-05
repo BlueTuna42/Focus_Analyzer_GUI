@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(FocusChecker)
+project(SharpMark)
 
 # Define ANSI escape sequences for colored output (works in most terminals)
 if(NOT WIN32 OR (DEFINED ENV{TERM} AND NOT "$ENV{TERM}" STREQUAL ""))
@@ -85,25 +85,25 @@ set(SOURCES
 )
 
 if(WIN32)
-    add_executable(focus_checker WIN32 ${SOURCES})
+    add_executable(SharpMark WIN32 ${SOURCES})
 else()
-    add_executable(focus_checker ${SOURCES})
+    add_executable(SharpMark ${SOURCES})
 endif()
 
-target_include_directories(focus_checker PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(SharpMark PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(TARGET PkgConfig::LIBRAW)
-    target_link_libraries(focus_checker PRIVATE PkgConfig::LIBRAW)
+    target_link_libraries(SharpMark PRIVATE PkgConfig::LIBRAW)
 else()
-    target_include_directories(focus_checker PRIVATE ${LIBRAW_INCLUDE_DIRS})
-    target_link_libraries(focus_checker PRIVATE ${LIBRAW_LIBRARIES})
+    target_include_directories(SharpMark PRIVATE ${LIBRAW_INCLUDE_DIRS})
+    target_link_libraries(SharpMark PRIVATE ${LIBRAW_LIBRARIES})
 endif()
 
 if(TARGET PkgConfig::GTK3)
-    target_link_libraries(focus_checker PRIVATE PkgConfig::GTK3)
+    target_link_libraries(SharpMark PRIVATE PkgConfig::GTK3)
 endif()
 
-target_link_libraries(focus_checker PRIVATE Threads::Threads)
+target_link_libraries(SharpMark PRIVATE Threads::Threads)
 if(UNIX)
-    target_link_libraries(focus_checker PRIVATE m)
+    target_link_libraries(SharpMark PRIVATE m)
 endif()
