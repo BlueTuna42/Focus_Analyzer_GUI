@@ -36,15 +36,19 @@ static gboolean on_result_list_key_press(GtkWidget* widget, GdkEventKey* event, 
 static void on_result_delete_button_clicked(GtkButton* button, gpointer data);
 static void on_result_row_activated(GtkListBox* box, GtkListBoxRow* row, gpointer data);
 static void on_delete_blurry_clicked(GtkButton* button, gpointer data);
+static void on_view_mode_combo_changed(GtkComboBox* combo, gpointer data);
+static void on_flow_box_child_activated(GtkFlowBox* box, GtkFlowBoxChild* child, gpointer data);
 
 // Result list helpers
 
 static ResultListView current_result_list_view() {
     return {
         g_ctx->list_box,
+        g_ctx->flow_box,
         g_ctx->list_scrolled_window,
         g_ctx->empty_results_label,
-        G_CALLBACK(on_result_delete_button_clicked)
+        G_CALLBACK(on_result_delete_button_clicked),
+        static_cast<int>(g_ctx->viewMode)
     };
 }
 
@@ -121,6 +125,7 @@ static void show_directory_controls(const std::string& dirpath) {
     gtk_widget_show(g_ctx->sort_combo);
     gtk_widget_show(g_ctx->button_delete_blurry);
     gtk_widget_show(g_ctx->directory_box);
+    gtk_widget_show(g_ctx->view_mode_combo);
     if (g_ctx->button_recheck) {
         gtk_widget_show(g_ctx->button_recheck);
     }
@@ -405,6 +410,36 @@ static void start_analysis_for_directory(const std::string& dirpath) {
     g_ctx->cv.notify_all();
 }
 
+static void on_view_mode_combo_changed(GtkComboBox* combo, gpointer data) {
+    const gint active = gtk_combo_box_get_active(combo);
+    if (active < 0) return;
+
+    g_ctx->viewMode = static_cast<ViewMode>(active);
+
+    if (g_ctx->viewMode == ViewMode::List) {
+        gtk_widget_show(g_ctx->list_box);
+        gtk_widget_hide(g_ctx->flow_box);
+    } else {
+        gtk_widget_hide(g_ctx->list_box);
+        gtk_widget_show(g_ctx->flow_box);
+    }
+    
+    rebuild_result_list();
+}
+
+static void on_flow_box_child_activated(GtkFlowBox* box, GtkFlowBoxChild* child, gpointer data) {
+    if (!child || g_ctx->scanInProgress) return;
+    
+    const char* filename = static_cast<const char*>(g_object_get_data(G_OBJECT(child), "filename"));
+    if (!filename) return;
+
+    const int index = gtk_flow_box_child_get_index(child);
+    const ResultData* result = g_ctx->results.visibleAt(g_ctx->sortMode, index);
+    if (result && result->filename == filename) {
+        open_viewer_for_result(*result);
+    }
+}
+
 // Window callbacks
 
 static void on_window_destroy(GtkWidget* widget, gpointer data) {
@@ -524,7 +559,9 @@ static void run_gtk_thread() {
         G_CALLBACK(on_result_row_activated),
         G_CALLBACK(on_result_list_key_press),
         G_CALLBACK(on_summary_draw),
-        G_CALLBACK(on_settings_clicked)
+        G_CALLBACK(on_settings_clicked),
+        G_CALLBACK(on_view_mode_combo_changed),
+        G_CALLBACK(on_flow_box_child_activated)
     });
 
     gtk_widget_show_all(g_ctx->window);

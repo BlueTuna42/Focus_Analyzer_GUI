@@ -8,9 +8,11 @@
 
 struct ResultListView {
     GtkWidget* listBox = nullptr;
+    GtkWidget* flowBox = nullptr; 
     GtkWidget* scrolledWindow = nullptr;
     GtkWidget* emptyLabel = nullptr;
     GCallback deleteCallback = nullptr;
+    int viewMode = 0;
 };
 
 void result_list_view_set_empty_visible(const ResultListView& view, bool visible);

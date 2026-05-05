@@ -16,6 +16,8 @@ struct MainWindowCallbacks {
     GCallback resultListKeyPress = nullptr;
     GCallback summaryDraw = nullptr;
     GCallback settingsClicked = nullptr;
+    GCallback viewModeChanged = nullptr;
+    GCallback flowBoxChildActivated = nullptr;
 };
 
 void build_main_window(GUIContext& ctx, const MainWindowCallbacks& callbacks);

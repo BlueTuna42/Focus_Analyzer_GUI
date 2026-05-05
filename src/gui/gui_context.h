@@ -10,6 +10,11 @@
 #include <string>
 #include <thread>
 
+enum class ViewMode {
+    List = 0,
+    Grid
+};
+
 struct GUIContext {
     GtkWidget *window = nullptr;
     GtkWidget *top_button_box = nullptr;
@@ -30,6 +35,9 @@ struct GUIContext {
     GtkWidget *summary_bar = nullptr;
     GtkWidget *button_settings = nullptr;
     AppSettings settings;
+    GtkWidget *flow_box = nullptr;
+    GtkWidget *view_mode_combo = nullptr;
+    ViewMode viewMode = ViewMode::List;
     int summarySharp = 0;
     int summaryBlurry = 0;
     SortMode sortMode = SortMode::Default;

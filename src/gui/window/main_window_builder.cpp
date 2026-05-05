@@ -72,6 +72,14 @@ static void build_directory_bar(GUIContext& ctx, GtkWidget* vbox, const MainWind
     g_signal_connect(ctx.sort_combo, "changed", callbacks.sortChanged, NULL);
     gtk_box_pack_start(GTK_BOX(ctx.directory_box), ctx.sort_combo, FALSE, FALSE, 0);
 
+    ctx.view_mode_combo = gtk_combo_box_text_new();
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(ctx.view_mode_combo), "List");
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(ctx.view_mode_combo), "Grid");
+    gtk_combo_box_set_active(GTK_COMBO_BOX(ctx.view_mode_combo), static_cast<gint>(ctx.viewMode));
+    gtk_widget_set_no_show_all(ctx.view_mode_combo, TRUE);
+    g_signal_connect(ctx.view_mode_combo, "changed", callbacks.viewModeChanged, NULL);
+    gtk_box_pack_start(GTK_BOX(ctx.directory_box), ctx.view_mode_combo, FALSE, FALSE, 0);
+
     ctx.button_delete_blurry = gtk_button_new_with_label("Delete blurry");
     gtk_widget_set_sensitive(ctx.button_delete_blurry, FALSE);
     gtk_style_context_add_class(gtk_widget_get_style_context(ctx.button_delete_blurry), "delete-button");
@@ -91,12 +99,25 @@ static void build_results_area(GUIContext& ctx, GtkWidget* vbox, const MainWindo
                                    GTK_POLICY_AUTOMATIC);
     gtk_container_add(GTK_CONTAINER(ctx.list_overlay), ctx.list_scrolled_window);
 
+    GtkWidget *view_stack = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_container_add(GTK_CONTAINER(ctx.list_scrolled_window), view_stack);
+
     ctx.list_box = gtk_list_box_new();
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(ctx.list_box), GTK_SELECTION_SINGLE);
     gtk_list_box_set_activate_on_single_click(GTK_LIST_BOX(ctx.list_box), FALSE);
     g_signal_connect(ctx.list_box, "row-activated", callbacks.resultRowActivated, NULL);
     g_signal_connect(ctx.list_box, "key-press-event", callbacks.resultListKeyPress, NULL);
-    gtk_container_add(GTK_CONTAINER(ctx.list_scrolled_window), ctx.list_box);
+    gtk_box_pack_start(GTK_BOX(view_stack), ctx.list_box, TRUE, TRUE, 0);
+
+    ctx.flow_box = gtk_flow_box_new();
+    gtk_widget_set_valign(ctx.flow_box, GTK_ALIGN_START);
+    gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(ctx.flow_box), 20);
+    gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(ctx.flow_box), GTK_SELECTION_SINGLE);
+    gtk_flow_box_set_activate_on_single_click(GTK_FLOW_BOX(ctx.flow_box), FALSE);
+    g_signal_connect(ctx.flow_box, "child-activated", callbacks.flowBoxChildActivated, NULL);
+    gtk_box_pack_start(GTK_BOX(view_stack), ctx.flow_box, TRUE, TRUE, 0);
+
+    gtk_widget_set_no_show_all(ctx.flow_box, TRUE);
 
     ctx.empty_results_label = gtk_label_new("No photos found in this folder");
     gtk_widget_set_halign(ctx.empty_results_label, GTK_ALIGN_CENTER);
